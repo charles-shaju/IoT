@@ -3,11 +3,17 @@
 
 #include <OneWire.h>
 #include <DallasTemperature.h>
+#include <LoRa.h> // Include the LoRa library
 
 #define ONE_WIRE_BUS 15
 #define GPS_BAUD 9600
 #define phPin 12  
 #define TurPin 13 
+
+// LoRa pins
+#define LORA_NSS 5
+#define LORA_RST 14
+#define LORA_DIO0 2
 
 OneWire oneWire(ONE_WIRE_BUS);
 DallasTemperature sensors(&oneWire);
@@ -66,6 +72,7 @@ void phSensor() {
 
   Serial.print("pH: ");
   Serial.println(phValue, 2);
+  return phValue;
 }
 
 void turbiditySensor() {
@@ -74,6 +81,7 @@ void turbiditySensor() {
 
   Serial.print("Turbidity: ");
   Serial.println(turbidity);
+  return turbidity;
 }
 
 void temperatureSensor() {
@@ -81,6 +89,24 @@ void temperatureSensor() {
   float tempC = sensors.getTempCByIndex(0);
   Serial.print("Temperature: ");
   Serial.println(tempC);
+  return tempC;
+}
+
+void sendLoRaData(float lat, float lon, int hour, int minute, int second, float ph, int turbidity, float temp) {
+  // Create a JSON-like string to send over LoRa
+  String data = "{\"lat\":" + String(lat, 4) + 
+                ",\"lon\":" + String(lon, 4) + 
+                ",\"time\":\"" + String(hour) + ":" + String(minute) + ":" + String(second) + "\"" +
+                ",\"ph\":" + String(ph, 2) + 
+                ",\"turbidity\":" + String(turbidity) + 
+                ",\"temp\":" + String(temp, 2) + "}";
+
+  // Send the data over LoRa
+  LoRa.beginPacket();
+  LoRa.print(data);
+  LoRa.endPacket();
+
+  Serial.println("Data sent over LoRa: " + data);
 }
 
 void setup() {
@@ -88,6 +114,14 @@ void setup() {
   gpsSerial.begin(GPS_BAUD, SERIAL_8N1, RXD2, TXD2);
   Serial.println("Serial2 started at 9600 baud rate");
   sensors.begin();
+
+  // Initialize LoRa
+  LoRa.setPins(LORA_NSS, LORA_RST, LORA_DIO0);
+  if (!LoRa.begin(433E6)) { // Use 433 MHz frequency (change as needed)
+    Serial.println("LoRa initialization failed!");
+    while (1);
+  }
+  Serial.println("LoRa initialized successfully!");
 }
 
 void parseNMEA(String nmea) {
@@ -125,13 +159,17 @@ void parseNMEA(String nmea) {
       Serial.println(latDecimal, 4);
       Serial.print("Longitude: ");
       Serial.println(lonDecimal, 4);
+
+      // Read sensor data
+      float ph = phSensor();
+      int turbidity = turbiditySensor();
+      float temp = temperatureSensor();
+
+      // Send data over LoRa
+      sendLoRaData(latDecimal, lonDecimal, utcHour, utcMinute, utcSecond, ph, turbidity, temp);
     } else {
       Serial.println("GPS data invalid");
     }
-
-    phSensor();
-    turbiditySensor();
-    temperatureSensor();
   }
 }
 
@@ -148,4 +186,3 @@ void loop() {
     }
   }
 }
-
